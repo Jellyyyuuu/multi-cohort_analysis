@@ -1,0 +1,37 @@
+library(vegan)
+shannon=diversity(metacyc_relab, index="shannon")
+richness <- colSums(metacyc_relab > 0)
+alpha_diversity <- data.frame(shannon, richness)
+
+alpha_diveristy_metadata_merged <- merge(metadata,alpha_diversity, by.x = "row.names", by.y = "row.names", all = TRUE)
+
+index=c("shannon", "richness")
+study=unique(alpha_diveristy_metadata_merged$Study)
+
+results=data.frame()
+for (j in study){
+  table_per_study = alpha_diveristy_metadata_merged[alpha_diveristy_metadata_merged$Study==stringr::str_c(j),]
+  for (i in index){
+    model <- glm(as.formula(Disease_State_binary ~ get(stringr::str_c(i))), data = table_per_study, family = binomial)
+    OR_table=exp(cbind(Odds_Ratio = coef(model), confint(model)))
+    results=rbind(results,data.frame(Study = j, Feature = i, Odds_Ratio=OR_table[2,1], lower_limit=OR_table[2,2], higher_limit=OR_table[2,3]))}
+}
+
+results$logOR <- log(results$Odds_Ratio)
+results$se.logOR <- (log(results$higher_limit)- log(results$lower_limit))/(2*1.96)
+
+write.csv(results,"OR_table_alpha_diversity.csv")
+
+model_results=list()
+for (i in index){
+  table_per_study_2=results[results$Feature ==stringr::str_c(i), ]
+  meta_model <- metagen(TE=logOR, 
+                        seTE=se.logOR, 
+                        studlab=Study, 
+                        method.tau="REML",
+                        method.tau.ci="QP", 
+                        sm="OR",
+                        common=FALSE,
+                        data=table_per_study_2)
+  model_results[[i]] =meta_model
+} 
