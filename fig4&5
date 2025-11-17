@@ -1,1 +1,234 @@
+library(Maaslin2)
+fit_data = Maaslin2(input_data     = batch_effect_adjusted_taxa_relab, 
+                    input_metadata = eightstudy_metadata, 
+                    min_abundance = -Inf,
+                    min_prevalence = 0,
+                    normalization  = "NONE",
+                    transform = "LOG",
+                    output         = "diff_taxa", 
+                    fixed_effects  = c("Disease_State"),
+                    random_effects=c("Study"))
+
+##################meta-analysis validation
+species_at_high_prevalence=c("s__Enterocloster_bolteae",
+       "s__Escherichia_coli",
+       "s__GGB3746_SGB5089",
+       "s__Ruminococcus_bicirculans",
+       "s__Lachnospira_eligens",
+       "s__Roseburia_inulinivorans",
+       "s__Roseburia_faecis",
+       "s__Anaerostipes_hadrus",
+       "s__Bifidobacterium_longum",
+       "s__Faecalibacterium_prausnitzii",
+       "s__Blautia_massiliensis",
+       "s__Blautia_wexlerae")
+
+
+
+species_at_low_prevalence=c("s__Eubacterium_siraeum",
+       "s__Bacteroides_stercoris",
+       "s__Streptococcus_thermophilus",
+       "s__Eisenbergiella_massiliensis",
+       "s__Alistipes_indistinctus",
+       "s__Neobittarella_massiliensis",
+       "s__Clostridium_scindens",
+       "s__Megamonas_funiformis")
+
+
+
+metadata_taxa_merged <- merge(eightstudy_metadata,batch_effect_adjusted_taxa_clr, by.x = "row.names", by.y = "row.names", all = FALSE)
+results_taxa=data.frame()
+for (j in study){
+  table_per_study = metadata_taxa_merged[metadata_taxa_merged$Study==stringr::str_c(j),]
+  for (i in species_at_high_prevalence){
+    model <- glm(as.formula(Disease_State_binary ~ get(stringr::str_c(i))), data = table_per_study, family = binomial)
+    OR_table=exp(cbind(Odds_Ratio = coef(model), confint(model)))
+    results_taxa=rbind(results_taxa,data.frame(Study = j, Feature = i, Odds_Ratio=OR_table[2,1], lower_limit=OR_table[2,2], higher_limit=OR_table[2,3]))}
+}
+
+results_taxa_filtered$logOR <- log(results_taxa$Odds_Ratio)
+results_taxa_filtered$se.logOR <- (log(results_taxa_filtered$higher_limit)- log(results_taxa_filtered$lower_limit))/(2*1.96)
+results_taxa_filtered=results_taxa_filtered[!results_taxa_filtered$logOR=="-Inf",]
+results_taxa_filtered=results_taxa_filtered[!results_taxa_filtered$se.logOR=="Inf",]
+results_taxa_filtered=na.omit(results_taxa_filtered)
+
+library(metafor)
+
+model_results_taxa_prevalent=list()
+for (i in species_at_high_prevalence){
+  table_per_study_2=results_taxa_filtered[results_taxa_filtered$Feature ==stringr::str_c(i), ]
+  random_effect_model <- rma(yi=logOR, sei=se.logOR, slab=Study, method="REML", data=table_per_study_2,measure ="OR" )
+  model_results_taxa_seleted[[i]] =random_effect_model
+} 
+
+sink("model_results_taxa_clr.txt")
+print(model_results_taxa_meta)
+sink()
+
+
+library(dplyr)
+batch_effect_adjusted_taxa_binary <- batch_effect_adjusted_taxa %>%
+  mutate(across(where(is.numeric), ~ ifelse(. > 0, 1, 0)))
+
+metadata_taxa_merged_binary <- merge(eightstudy_metadata,batch_effect_adjusted_taxa_binary, by.x = "row.names", by.y = "row.names", all = FALSE)
+results_taxa_binary=data.frame()
+for (j in study){
+  table_per_study = metadata_taxa_merged_binary[metadata_taxa_merged_binary$Study==stringr::str_c(j),]
+  for (i in species_at_low_prevalence){
+    model <- glm(as.formula(Disease_State_binary ~ get(stringr::str_c(i))), data = table_per_study, family = binomial)
+    OR_table=exp(cbind(Odds_Ratio = coef(model), confint(model)))
+    results_taxa_binary=rbind(results_taxa_binary,data.frame(Study = j, Feature = i, Odds_Ratio=OR_table[2,1], lower_limit=OR_table[2,2], higher_limit=OR_table[2,3]))}
+}
+
+results_taxa_binary_filtered$logOR <- log(results_taxa_binary$Odds_Ratio)
+results_taxa_binary_filtered$se.logOR <- (log(results_taxa_binary_filtered$higher_limit)- log(results_taxa_binary_filtered$lower_limit))/(2*1.96)
+results_taxa_binary_filtered=results_taxa_binary_filtered[!results_taxa_binary_filtered$logOR=="-Inf",]
+results_taxa_binary_filtered=results_taxa_binary_filtered[!results_taxa_binary_filtered$se.logOR=="Inf",]
+results_taxa_binary_filtered=na.omit(results_taxa_binary_filtered)
+
+
+library(metafor)
+
+model_results_taxa_binary=list()
+for (i in species_at_low_prevalence){
+  table_per_study_2=results_taxa_binary_filtered[results_taxa_binary_filtered$Feature ==stringr::str_c(i), ]
+  random_effect_model <- rma(yi=logOR, sei=se.logOR, slab=Study, method="REML", data=table_per_study_2,measure ="OR" )
+  model_results_taxa_binary[[i]] =random_effect_model
+} 
+
+sink("model_results_taxa_binary.txt") 
+print(model_results_taxa_binary)
+sink()
+
+#############plot the pooled odds ratio
+
+ggplot(prevalent_OR, aes(x = OR, y = reorder(`...1`, OR))) +
+  #geom_bar(stat = "identity", aes(width = `upper limit` - `lower limit`), fill = "grey") +  
+  geom_errorbar(aes(xmin = `lower limit`, xmax = `upper limit`), width = 0.2, color = "black") + 
+  geom_point(aes(x = OR), color = "steelblue", size = 2) +  
+  geom_vline(xintercept = 1, linetype = "dashed", color = "red") +  
+  labs(x = "Pooled effect size", y = "Features", title = "Feature Importance") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) 
+
+
+ggplot(OR_taxa_binary, aes(x = OR, y = reorder(`...1`, OR))) +
+  #geom_bar(stat = "identity", aes(width = `upper limit` - `lower limit`), fill = "grey") +  
+  geom_errorbar(aes(xmin = `lower limit`, xmax = `upper limit`), width = 0.2, color = "black") +  
+  geom_point(aes(x = OR), color = "steelblue", size = 2) +  
+  geom_vline(xintercept = 1, linetype = "dashed", color = "red") +  
+  labs(x = "Pooled effect size", y = "Features", title = "Feature Importance") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank())  
+
+
+#############sensitivity analysis
+
+taxa_sig_at_high_prevalence=c(
+  "s__Faecalibacterium_prausnitzii",
+  "s__Blautia_wexlerae"
+)
+
+taxa_sig_at_low_prevalence=c(
+  "s__Eisenbergiella_massiliensis",
+  "s__Neobittarella_massiliensis",
+  "s__Clostridium_scindens",
+  "s__Streptococcus_thermophilus",
+  "s__Bacteroides_stercoris",
+  "s__Eubacterium_siraeum"
+)
+
+marker_taxa_1=batch_effect_adjusted_taxa_relab[,colnames(batch_effect_adjusted_taxa_relab)%in%taxa_sig_at_high_prevalence]
+marker_taxa_2=batch_effect_adjusted_taxa_relab[,colnames(batch_effect_adjusted_taxa_relab)%in%taxa_sig_at_low_prevalence]
+
+for (i in taxa_sig_at_low_prevalence){
+  new_col_name <- stringr::str_c(i, "_binary")
+  marker_taxa_2 <- marker_taxa_2 %>% mutate(!!new_col_name := ifelse(marker_taxa[[i]]>"0" , 1 , 0 ))
+}
+
+marker_taxa_binary <- marker_taxa_2[, grepl("_binary", names(marker_taxa_2))]
+marker_taxa_metadata_merged <- merge(eightstudy_metadata,marker_taxa_binary, by.x = "row.names", by.y = "row.names", all = TRUE)
+
+results_marker_taxa_binary=data.frame()
+for (j in study){
+  table_per_study = marker_taxa_metadata_merged[marker_taxa_metadata_merged$Study==stringr::str_c(j),]
+  for (i in taxa_sig_at_low_prevalence){
+    model <- glm(as.formula(Disease_State_binary ~ get(stringr::str_c(i,"_binary"))), data = table_per_study, family = binomial)
+    OR_table=exp(cbind(Odds_Ratio = coef(model), confint(model)))
+    results_marker_taxa_binary=rbind(results_marker_taxa_binary,data.frame(Study = j, Feature = i, Odds_Ratio=OR_table[2,1], lower_limit=OR_table[2,2], higher_limit=OR_table[2,3]))}
+}
+
+results_marker_taxa_binary$logOR <- log(results_marker_taxa_binary$Odds_Ratio)
+results_marker_taxa_binary$se.logOR <- (log(results_marker_taxa_binary$higher_limit)- log(results_marker_taxa_binary$lower_limit))/(2*1.96)
+results_marker_taxa_binary=na.omit(results_marker_taxa_binary)
+
+library(metafor)
+sensitivity_taxa_binary <- list()
+
+for (i in taxa_sig_at_low_prevalence) {
+  table_per_study_2 <- results_marker_taxa_binary[results_marker_taxa_binary$Feature == stringr::str_c(i), ]
+  
+  for (removed_study in unique(table_per_study_2$Study)) {
+    table_per_study_excluded <- table_per_study_2[table_per_study_2$Study != removed_study, ]
+    
+    random_effect_model <- rma(yi = logOR, sei = se.logOR, slab = Study, 
+                               method = "REML", data = table_per_study_excluded, 
+                               measure = "OR",
+                               control = list(maxit = 500))
+    
+    identifier <- paste("Species:", i, "| Removed Study:", removed_study)
+    sensitivity_taxa_binary[[identifier]] <- random_effect_model
+  }
+}
+
+sink("taxa_binary_sensitivity_analysis.txt")
+print(sensitivity_taxa_binary)
+sink()
+
+
+# Initialize an empty data frame
+results_df <- data.frame(Identifier = character(),
+                         b = numeric(),
+                         pval = numeric(),
+                         tau2 = numeric(),
+                         tau = numeric(),
+                         I2 = numeric(),
+                         H2 = numeric(),
+                         stringsAsFactors = FALSE)
+
+for (identifier in names(sensitivity_taxa_binary)) {
+  model <- sensitivity_taxa_binary[[identifier]]
+  
+  b <- model$beta[1]  
+  pval <- model$pval[1]  
+  
+  tau2 <- model$tau2  
+  tau <-sqrt(model$tau2)   
+  I2 <- model$I2      
+  H2 <- model$H2      
+  #R2 <- model$R2      
+  
+  results_df <- rbind(results_df, data.frame(Identifier = identifier, 
+                                             b = b, 
+                                             pval = pval, 
+                                             tau2 = tau2, 
+                                             tau = tau, 
+                                             I2 = I2, 
+                                             H2 = H2 
+  ))
+}
+
+print(results_df)
+
+
+
+
+
+
+
+
+
+
 
