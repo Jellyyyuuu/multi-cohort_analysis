@@ -1,0 +1,103 @@
+eightstudy_metacyc_relab_metadata_merged <- merge(eightstudy_metadata, eightstudy_metacyc_relab_10_prevalence, by.x = "row.names", by.y = "row.names", all = TRUE)
+eightstudy_taxa_relab_metadata_merged <- merge(eightstudy_metadata, eightstudy_taxa_relab_10prevalence, by.x = "row.names", by.y = "row.names", all = TRUE)
+
+
+####################taxa permanova
+data.matrix=as.matrix(eightstudy_taxa_relab_metadata_merged[,7:147])
+sqrt.data.matrix=sqrt(data.matrix)
+sqrt_dis.matrix_taxa<-vegdist(sqrt.data.matrix, method='bray')
+set.seed(1) #reproducible results
+permanova_sqrt<-adonis2(sqrt_dis.matrix_taxa~Disease_State+Study, data=eightstudy_taxa_relab_metadata_merged, permutations = 999, method="bray")
+permanova_sqrt
+sink("permanova_taxa_updated_on_10prevalence.txt")
+print(permanova_sqrt)
+sink()
+
+
+
+#####################function permanova
+data.matrix=as.matrix(eightstudy_metacyc_relab_metadata_merged[,7:339])
+sqrt.data.matrix=sqrt(data.matrix)
+sqrt_dis.matrix_metacyc<-vegdist(sqrt.data.matrix, method='bray')
+set.seed(1) #reproducible results
+permanova_sqrt<-adonis2(sqrt_dis.matrix_metacyc~Disease_State+Study, data=eightstudy_metacyc_relab_metadata_merged, permutations = 999, method="bray")
+permanova_sqrt
+sink("permanova_function_updated_on_10prevalence.txt")
+print(permanova_sqrt)
+sink()
+
+
+
+###############################between study centroid distance
+library(usedist)
+
+unique_studies <- unique(eightstudy_metacyc_relab_metadata_merged$Study)
+
+results <- list()
+
+for (i in 1:length(unique_studies)) {
+  for (j in i:length(unique_studies)) {  # Start from i to avoid duplicate comparisons
+    study1 <- unique_studies[i]
+    study2 <- unique_studies[j]
+    
+    idx1 <- which(eightstudy_metacyc_relab_metadata_merged$Study == study1)
+    idx2 <- which(eightstudy_metacyc_relab_metadata_merged$Study == study2)
+    
+    distance <- dist_between_centroids(sqrt_dis.matrix_metacyc, idx1, idx2, squared = FALSE)
+    
+    results[[paste(study1, study2, sep = "_vs_")]] <- distance
+  }
+}
+
+results
+
+distance_matrix <- matrix(NA, nrow = length(unique_studies), ncol = length(unique_studies))
+
+rownames(distance_matrix) <- unique_studies
+colnames(distance_matrix) <- unique_studies
+
+for (i in 1:length(unique_studies)) {
+  for (j in i:length(unique_studies)) {
+    study1 <- unique_studies[i]
+    study2 <- unique_studies[j]
+    
+    distance <- results[[paste(study1, study2, sep = "_vs_")]]
+    
+    distance_matrix[i, j] <- distance
+    distance_matrix[j, i] <- distance  # Fill the symmetric value
+  }
+}
+print(distance_matrix)
+
+
+###########################################within study distance to centroid
+
+distance_to_centroid=dist_to_centroids(sqrt_dis.matrix_taxa, eightstudy_taxa_relab_metadata_merged$Study)
+distance_to_centroid$Study <- eightstudy_metadata$Study[match(distance_to_centroid$Item, rownames(eightstudy_metadata))]
+filtered_distance_to_centroid <- distance_to_centroid[distance_to_centroid$CentroidGroup == distance_to_centroid$Study, ]
+averaged_centroid_distances <- aggregate(CentroidDistance ~ CentroidGroup, 
+                                         data = filtered_distance_to_centroid, 
+                                         FUN = mean)
+
+
+#########################################between group distance within study
+results_list <- list()
+
+for (study in unique_studies) {
+  subset_data <- eightstudy_taxa_relab_metadata_merged[eightstudy_taxa_relab_metadata_merged$Study == study, ]
+  
+  asd <- rownames(subset_data[subset_data$Disease_State == "ASD", ])
+  td <- rownames(subset_data[subset_data$Disease_State == "TD", ])
+  
+  if (length(asd) > 0 && length(td) > 0) {
+    distance <- dist_between_centroids(sqrt_dis.matrix_taxa, asd, td, squared = FALSE)
+    
+    results_list[[study]] <- distance
+  }
+}
+
+print(results_list)
+
+between_group_centroid_distance_taxa <- do.call(rbind, lapply(names(results_list), function(study) {
+  data.frame(Study = study, between_group_Distance = results_list[[study]])
+}))
