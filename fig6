@@ -1,0 +1,24 @@
+marker=c(
+  "COBALSYN-PWY: superpathway of adenosylcobalamin salvage from cobinamide I",
+  "PWY-5695: inosine 5'-phosphate degradation",
+  "PWY-7977: L-methionine biosynthesis IV",
+  "PWY-6151: S-adenosyl-L-methionine salvage I",
+  "PWY-6270: isoprene biosynthesis I",
+  "PWY-724: superpathway of L-lysine, L-threonine and L-methionine biosynthesis II",
+  "PWY66-389: phytol degradation")
+
+stratified_pathway_for_plot=full_stratified_pathway_filtered[full_stratified_pathway_filtered$Pathway%in%marker,]
+
+
+library(dplyr)
+
+summarized_data <- stratified_pathway_for_plot %>%
+  group_by(Pathway, genus) %>%
+  summarise(across(ends_with("_Abundance-RELAB"), sum, na.rm = TRUE), .groups = 'drop')
+colnames(summarized_data) <- gsub("_Abundance-RELAB", "", colnames(summarized_data))
+
+library(tidyr)
+selected_features_long <- summarized_data %>%
+  pivot_longer(cols = -c(Pathway, genus), names_to = "sample_id", values_to = "relab")
+eightstudy_metadata <- rownames_to_column(eightstudy_metadata, var = "sample_id")
+merged_df <- left_join(selected_features_long, eightstudy_metadata, by = "sample_id")
