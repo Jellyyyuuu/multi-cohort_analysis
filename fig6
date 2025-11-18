@@ -22,3 +22,138 @@ selected_features_long <- summarized_data %>%
   pivot_longer(cols = -c(Pathway, genus), names_to = "sample_id", values_to = "relab")
 eightstudy_metadata <- rownames_to_column(eightstudy_metadata, var = "sample_id")
 merged_df <- left_join(selected_features_long, eightstudy_metadata, by = "sample_id")
+
+avg_contribution <- merged_df %>%
+  group_by(Pathway,genus, Study) %>%
+  summarize(avg_relab = mean(relab))
+avg_contribution <- avg_contribution %>%
+  group_by(Pathway, Study) %>%
+  mutate(rel_contribution = avg_relab / sum(avg_relab))
+
+avg_contribution_filtered=avg_contribution[avg_contribution$genus!="unclassified",]
+top_genus <- avg_contribution_filtered %>%
+  group_by(Pathway, Study) %>%
+  slice_max(order_by = rel_contribution, n = 5, with_ties = FALSE) %>%  # Change n for more than one top genus if needed
+  ungroup()   
+
+order=rev(marker)
+
+p <- ggplot(top_genus, aes(x = rel_contribution, y = factor(Pathway, levels = order), fill = genus)) +
+  geom_bar(stat = "identity", orientation = "y") +
+  #scale_fill_discrete(name = "Genus", limits = top_genera) +
+  #scale_fill_viridis_d(name = "Genus", limits = top_genera) +
+  #scale_fill_brewer(name = "Genus", palette = "Accent", limits = top_genera) +
+  #scale_fill_manual(name = "Genus", values = c25, limits = top_genera)+
+  scale_fill_manual(values = c29)+
+  labs(x = "Relative Abundance", y = NULL) +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.5)) +
+  facet_grid(cols = vars(Study), scales = "free_y", space = "free_y") +
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 14,face = "bold"),
+        axis.title.y = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14),
+        strip.text = element_text(size = 14),
+        plot.title = element_text(size = 14))
+
+print(p)
+
+
+###########################chord plot
+marker=c(
+  "COBALSYN-PWY: superpathway of adenosylcobalamin salvage from cobinamide I",
+  "PWY-5695: inosine 5'-phosphate degradation",
+  "PWY-7977: L-methionine biosynthesis IV",
+  "PWY-6151: S-adenosyl-L-methionine salvage I",
+  "PWY-6270: isoprene biosynthesis I",
+  "PWY-724: superpathway of L-lysine, L-threonine and L-methionine biosynthesis II",
+  "TD")
+
+all_results_filtered=all_results[all_results$pathway%in%marker,]
+
+all_results_filtered$coef[all_results_filtered$pval > 0.05] <- NA
+all_results_filtered$coef[all_results_filtered$coef < 0] <- NA
+all_results_filtered$coef[all_results_filtered$coef < 0.3] <- NA
+
+all_results_filtered <- all_results_filtered[order(all_results_filtered$feature, all_results_filtered$value), ]
+correlation_matrix <- matrix(all_results_filtered$coef, nrow = 1, ncol = 21, byrow = TRUE)
+
+col_name=all_results_filtered$feature
+row_name=all_results_filtered$value
+
+col_name=unique(col_name)
+row_name=unique(row_name)
+
+rownames(correlation_matrix) <- row_name
+colnames(correlation_matrix) <- col_name
+
+group <- structure(sub("\\|.*$", "", colnames(correlation_matrix)), names = col_name)
+group
+
+classes <- sub("\\|.*$", "", colnames(correlation_matrix))
+classes["TD"] <- "TD"
+unique_classes <- unique(classes)
+
+color_palette <- c("red", "#97DFFC", "orange", "#858AE3", "#FF0090", "#B8A954","#DEFF98")
+class_mapping <- setNames(color_palette[1:length(unique_classes)], unique_classes)
+
+assigned_numbers <- class_mapping[classes]
+
+all_sectors=col_name
+all_sectors["TD"] <- "TD"
+grid.col <- structure(assigned_numbers, names = all_sectors)
+print(grid.col)
+group["TD"] <- "TD"
+
+circos.par(canvas.xlim = c(-3, 3), canvas.ylim = c(-3, 3))
+library(circlize)
+chordDiagram(correlation_matrix, group = group, grid.col = grid.col,
+             annotationTrack = c("grid","axis"),
+             preAllocateTracks = list(
+               track.height = mm_h(4),
+               track.margin = c(mm_h(4), 0)
+             ))
+
+unique_groups <- unique(group)
+unique_groups <- unique_groups[unique_groups != "TD"]
+
+
+legend(x = "topright", legend = unique_groups, 
+       fill = class_mapping[unique_groups], 
+       title = "Beneficial Pathways", 
+       bty = "n", 
+       cex = 0.7, 
+       xpd = TRUE)
+
+highlight.sector("TD", track.index = 1, col = "#DEFF98", 
+                 text = "TD", cex = 0.8, text.col = "black", niceFacing = TRUE)
+
+circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
+  xlim = get.cell.meta.data("xlim")
+  ylim = get.cell.meta.data("ylim")
+  sector.name = get.cell.meta.data("sector.index")
+  
+  if (sector.name != "TD") {
+    cleaned_text <- sub(".*\\.\\s*", "", sector.name)
+    
+    circos.text(CELL_META$xcenter, 
+                ylim[1] + cm_h(2), 
+                cleaned_text, 
+                facing = "clockwise",
+                niceFacing = TRUE, 
+                adj = c(0, 0.5),
+                cex = 0.5,
+                col = "black",
+                font = 2)
+  }
+  
+}, bg.border = NA)
+
+
+
+
+
+
+
+
+
