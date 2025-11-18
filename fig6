@@ -150,6 +150,136 @@ circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
 }, bg.border = NA)
 
 
+#########################################network analysis
+taxa_marker=c(
+  "s__Eisenbergiella_massiliensis",
+  "s__Neobittarella_massiliensis",
+  "s__Clostridium_scindens",
+  "s__Streptococcus_thermophilus",
+  "s__Bacteroides_stercoris",
+  "s__Eubacterium_siraeum",
+  "s__Faecalibacterium_prausnitzii",
+  "s__Blautia_wexlerae"
+)
+
+
+pathway_marker=c(
+  "COBALSYN-PWY: superpathway of adenosylcobalamin salvage from cobinamide I",
+  "PWY-5695: inosine 5'-phosphate degradation",
+  "PWY-7977: L-methionine biosynthesis IV",
+  "PWY-6151: S-adenosyl-L-methionine salvage I",
+  "PWY-6270: isoprene biosynthesis I",
+  "PWY-724: superpathway of L-lysine, L-threonine and L-methionine biosynthesis II",
+  "PWY66-389: phytol degradation"
+)
+
+
+taxa_df=adjusted_taxa_count[,colnames(adjusted_taxa_count)%in%taxa_marker]
+asd_taxa <- taxa_df[rownames(eightstudy_metadata[eightstudy_metadata$Disease_State == "ASD", ]), ]
+td_taxa <- taxa_df[rownames(eightstudy_metadata[eightstudy_metadata$Disease_State == "TD", ]), ]
+asd_taxa=as.matrix(asd_taxa)
+td_taxa=as.matrix(td_taxa)
+sparcc_cor <- SpiecEasi::sparcc(asd_taxa)$Cor
+rownames(sparcc_cor) <- colnames(sparcc_cor) <- colnames(asd_taxa)
+
+
+pathway_df=adjusted_pathway_relab[,colnames(adjusted_pathway_relab)%in%pathway_marker]
+asd_pathway <- pathway_df[rownames(eightstudy_metadata[eightstudy_metadata$Disease_State == "ASD", ]), ]
+td_pathway <- pathway_df[rownames(eightstudy_metadata[eightstudy_metadata$Disease_State == "TD", ]), ]
+asd_pathway=as.matrix(asd_pathway)
+td_pathway=as.matrix(td_pathway)
+
+library(NetCoMi)
+net_taxa <- netConstruct(data = asd_taxa, 
+                           data2 = td_taxa,  
+                           measure = "sparcc",
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "t-test",
+                           #thresh = 0.3,
+                           alpha = 0.1,
+                           adjust = "none",
+                           #trueNullMethod = "convest",
+                           #lfdrThresh = 0.2,
+                           #dissFunc = "signed",
+                           verbose = 2,
+                           seed = 1)
+
+
+netprops_taxa <- netAnalyze(net_taxa, 
+                           centrLCC = TRUE,
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = "eigenvector",
+                           weightDeg = FALSE, 
+                           normDeg = FALSE)
+
+summary(netprops_taxa, groupNames = c("ASD", "TD"))
+
+plot(netprops_taxa,
+     sameLayout = TRUE,
+     repulsion = 1,
+     rmSingles = "inboth",
+     labelScale = FALSE,
+     nodeSize = "eigenvector",
+     nodeSizeSpread = 2,
+     nodeColor = "cluster",
+     sameColThresh = 2,
+     hubBorderCol = "darkgray",
+     cexNodes = 2,
+     edgeTranspHigh = 20,
+     posCol="red",
+     negCol="blue",
+     title1 = "ASD",
+     title2 = "TD",
+     showTitle = TRUE,
+     cexTitle = 2,
+     mar = c(1, 4, 4, 4))
+
+
+net_pathway <- netConstruct(data = asd_pathway, 
+                           data2 = td_pathway,  
+                           measure = "spearman",
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "t-test",
+                           #thresh = 0.3,
+                           alpha = 0.1,
+                           adjust = "none",
+                           #trueNullMethod = "convest",
+                           #lfdrThresh = 0.2,
+                           #dissFunc = "signed",
+                           verbose = 2,
+                           seed = 1)
+
+
+netprops_pathway <- netAnalyze(net_pathway, 
+                           centrLCC = TRUE,
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = "eigenvector",
+                           weightDeg = FALSE, 
+                           normDeg = FALSE)
+
+summary(netprops_pathway, groupNames = c("ASD", "TD"))
+
+plot(netprops_pathway,
+     sameLayout = TRUE,
+     repulsion = 1,
+     rmSingles = "inboth",
+     labelScale = FALSE,
+     nodeSize = "eigenvector",
+     nodeSizeSpread = 2,
+     nodeColor = "cluster",
+     sameColThresh = 2,
+     hubBorderCol = "darkgray",
+     cexNodes = 2,
+     edgeTranspHigh = 20,
+     posCol="red",
+     negCol="blue",
+     title1 = "ASD",
+     title2 = "TD",
+     showTitle = TRUE,
+     cexTitle = 2,
+     mar = c(1, 4, 4, 4))
 
 
 
